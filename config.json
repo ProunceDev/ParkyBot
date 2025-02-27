@@ -1,3 +1,7 @@
 {
-    "guild_id": "placeholder"
+    "guild_id": "1312138576221442059",
+    "staff_role_id": "1344694191074181183",
+    "whitelist_channel": "1344696835033268234",
+    "staff_whitelist_log_channel": "1344775554355822684",
+    "whitelist_location": "C:\\Users\\Admin\\Documents\\Github\\ParkyBot\\players.list"
 }
