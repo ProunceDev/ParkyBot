@@ -30,7 +30,7 @@ class Trapping_Clips(Extension):
 		if mc_uuid and is_valid_uuid(mc_uuid):
 			whitelist_user = whitelist.create_user(event.message.author.id, event.message.author.username, mc_uuid, mc_name)
 
-			if whitelist.add_user(whitelist_user, config.get_setting("whitelist_location")):
+			if whitelist.add_user(whitelist_user, os.path.join(config.get_setting("whitelist_location"), "event.whitelist")):
 				await event.message.add_reaction("✅")
 				reply = await event.message.reply(embed=create_embed(f"Success", f"**{mc_name}** is now whitelisted.", 0x00FF00))
 				await whitelist_log_channel.send(embed=create_embed(f"Whitelist Log", f"**{event.message.author.username}** whitelisted **{mc_name}**.", 0xFFFFFF))

@@ -30,23 +30,20 @@ def save_users(users, filename="players.list"):
 		for user in users:
 			file.write(f"|{user[0]:<40}|{user[1]:<40}|{user[2]:<40}|{user[3]:<40}|\n")
 
-def add_user(user, filename="players.list"):
-	users = load_users(filename)
-	if user not in users:
-		users.append(user)
-		save_users(users, filename)
-		return True
-	else:
-		return False
+def add_user(new_user, filename="players.list"):
+    users = load_users(filename)
+    for user in users:
+        if user[2] == new_user[2]:
+            return False  # UUID already exists
+    users.append(new_user)
+    save_users(users, filename)
+    return True
 
-def remove_user(user, filename="players.list"):
-	users = load_users(filename)
-	if user in users:
-		users.remove(user)
-		save_users(filename, users)
-		return True
-	else:
-		return False
+def remove_user(minecraft_uuid, filename="players.list"):
+    users = load_users(filename)
+    users = [user for user in users if user[2].replace("-", "") != minecraft_uuid]
+    save_users(users, filename)
+    return True
 	
 def get_number_of_whitelisted_users(discord_id, filename="players.list"):
 	total = 0
@@ -58,14 +55,3 @@ def get_number_of_whitelisted_users(discord_id, filename="players.list"):
 
 def create_user(discord_id, discord_username, minecraft_uuid, minecraft_username):
 	return [str(discord_id), str(discord_username), str(minecraft_uuid), str(minecraft_username)]
-
-# Example usage
-if __name__ == "__main__":
-	users_data = [
-		["123456789", "ExampleUser", "abcdef123456", "Steve"],
-		["987654321", "AnotherUser", "654321abcdef", "Alex"]
-	]
-
-	save_users(users_data)
-	loaded_users = load_users()
-	print(loaded_users)

@@ -21,10 +21,24 @@ class Commands(Extension):
 				description="Discord User",
 				type=OptionType.USER,
 				required=True,
+			),
+			SlashCommandOption(
+				name="whitelist_file",
+				description="Whitelist to remove the user from.",
+				type=OptionType.STRING,
+				required=True,
+				choices=[	
+							SlashCommandChoice(
+								"staff", "staff.whitelist"
+							),
+							SlashCommandChoice(
+								"event", "event.whitelist"
+							)
+						]
 			)
 		],
 	)
-	async def whitelist_add(self, ctx: ComponentContext, mc_username: str, discord_user: User):
+	async def whitelist_add(self, ctx: ComponentContext, mc_username: str, discord_user: User, whitelist_file: str):
 		await ctx.defer(ephemeral=False)
 
 		role = ctx.guild.get_role(config.get_setting("staff_role_id", ""))
@@ -34,12 +48,12 @@ class Commands(Extension):
 			if mc_uuid and is_valid_uuid(mc_uuid):
 				whitelist_user = whitelist.create_user(discord_user.id, discord_user.username, mc_uuid, mc_name)
 
-				if whitelist.add_user(whitelist_user, config.get_setting("whitelist_location")):
+				if whitelist.add_user(whitelist_user, os.path.join(config.get_setting("whitelist_location"), whitelist_file)):
 					await ctx.send(
 						embed=create_embed(
 							f"Success...",
 							f"Added {mc_name} to the whitelist.",
-							0xFF0000
+							0x00FF00
 						)
 						, ephemeral=True
 					)
@@ -86,10 +100,24 @@ class Commands(Extension):
 				description="Discord User",
 				type=OptionType.USER,
 				required=True,
+			),
+			SlashCommandOption(
+				name="whitelist_file",
+				description="Whitelist to remove the user from.",
+				type=OptionType.STRING,
+				required=True,
+				choices=[	
+							SlashCommandChoice(
+								"staff", "staff.whitelist"
+							),
+							SlashCommandChoice(
+								"event", "event.whitelist"
+							)
+						]
 			)
 		],
 	)
-	async def whitelist_remove(self, ctx: ComponentContext, mc_username: str, discord_user: User):
+	async def whitelist_remove(self, ctx: ComponentContext, mc_username: str, discord_user: User, whitelist_file: str):
 		await ctx.defer(ephemeral=False)
 
 		role = ctx.guild.get_role(config.get_setting("staff_role_id", ""))
@@ -97,9 +125,7 @@ class Commands(Extension):
 			mc_uuid, mc_name = get_minecraft_account(mc_username)
 
 			if mc_uuid and is_valid_uuid(mc_uuid):
-				whitelist_user = whitelist.create_user(discord_user.id, discord_user.username, mc_uuid, mc_name)
-
-				if whitelist.remove_user(whitelist_user, config.get_setting("whitelist_location")):
+				if whitelist.remove_user(mc_uuid, os.path.join(config.get_setting("whitelist_location"), whitelist_file)):
 					await ctx.send(
 						embed=create_embed(
 							f"Success...",
