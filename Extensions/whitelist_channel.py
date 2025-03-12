@@ -11,11 +11,13 @@ class Trapping_Clips(Extension):
 	async def on_message_create(self, event: MessageCreate):
 		whitelist_log_channel = await bot.fetch_channel(config.get_setting("staff_whitelist_log_channel", ""))
 
-		if event.message.channel.id != int(config.get_setting("whitelist_channel", "")) or event.message.author.id == bot.user.id or not event.message.content.startswith("!whitelist "):
+		if event.message.channel.id != int(config.get_setting("whitelist_channel", "")) or event.message.author.id == bot.user.id:
 			return
-		
+		if not event.message.content.startswith("!whitelist "):
+			await event.message.delete()
+			return
 		username = event.message.content.replace("!whitelist ", "")
-		num_whitelisted = whitelist.get_number_of_whitelisted_users(event.message.author.id)
+		num_whitelisted = whitelist.get_number_of_whitelisted_users(event.message.author.id, os.path.join(config.get_setting("whitelist_location"), "event.whitelist"))
 		if num_whitelisted > 0:
 			await event.message.add_reaction("❌")
 			reply = await event.message.reply(embed=create_embed(f"Failed...", f"You already whitelisted **{num_whitelisted}**, the maximum is **1**.", 0xFF0000))
