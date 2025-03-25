@@ -1,5 +1,6 @@
 import os
 import requests
+import re
 
 from constants import *
 from interactions import *
@@ -31,5 +32,4 @@ def get_minecraft_account(username):
 
 def is_valid_uuid(uuid):
 	"""Check if the UUID is a valid 32-character hex string"""
-	import re
 	return bool(re.fullmatch(r"^[a-fA-F0-9]{32}$", uuid))
