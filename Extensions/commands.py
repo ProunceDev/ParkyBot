@@ -1,9 +1,9 @@
 from constants import *
 from interactions import *
 
-from Extensions.utilities import config, is_valid_uuid, get_minecraft_account, create_embed
+from Extensions.utilities import config, is_valid_uuid, create_embed
 
-import Extensions.whitelist_handler as whitelist
+import whitelist_handler as whitelist
 
 class Commands(Extension):
 	@slash_command(
@@ -43,12 +43,12 @@ class Commands(Extension):
 
 		role = ctx.guild.get_role(config.get_setting("staff_role_id", ""))
 		if role in ctx.author.roles:
-			mc_uuid, mc_name = get_minecraft_account(mc_username)
+			mc_uuid, mc_name = whitelist.get_minecraft_account(mc_username)
 
 			if mc_uuid and is_valid_uuid(mc_uuid):
 				whitelist_user = whitelist.create_user(discord_user.id, discord_user.username, mc_uuid, mc_name)
 
-				if whitelist.add_user(whitelist_user, os.path.join(config.get_setting("whitelist_location"), whitelist_file)):
+				if whitelist.add_user(whitelist_user, whitelist_file):
 					await ctx.send(
 						embed=create_embed(
 							f"Success...",
@@ -122,10 +122,10 @@ class Commands(Extension):
 
 		role = ctx.guild.get_role(config.get_setting("staff_role_id", ""))
 		if role in ctx.author.roles:
-			mc_uuid, mc_name = get_minecraft_account(mc_username)
+			mc_uuid, mc_name = whitelist.get_minecraft_account(mc_username)
 
 			if mc_uuid and is_valid_uuid(mc_uuid):
-				if whitelist.remove_user(mc_uuid, os.path.join(config.get_setting("whitelist_location"), whitelist_file)):
+				if whitelist.remove_user(mc_uuid, whitelist_file):
 					await ctx.send(
 						embed=create_embed(
 							f"Success...",

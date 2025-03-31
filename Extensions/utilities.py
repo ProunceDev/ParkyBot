@@ -1,5 +1,4 @@
 import os
-import requests
 import re
 
 from constants import *
@@ -19,16 +18,6 @@ class Utilities(Extension):
 
 def create_embed(title, description, color=0xFFFFFF):
 		return Embed(title=title, description=description, color=color)
-	
-def get_minecraft_account(username):
-	url = f"https://api.mojang.com/users/profiles/minecraft/{username}"
-	response = requests.get(url)
-
-	if response.status_code == 200:
-		data = response.json()
-		return data.get("id"), data.get("name")
-	else:
-		return None, None
 
 def is_valid_uuid(uuid):
 	"""Check if the UUID is a valid 32-character hex string"""

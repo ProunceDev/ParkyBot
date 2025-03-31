@@ -2,6 +2,9 @@ from constants import *
 from interactions import *
 from interactions.ext import prefixed_commands
 from Extensions.utilities import bot
+import threading
+
+from network_api import app
 
 prefixed_commands.setup(bot, default_prefix="=")
 
@@ -13,5 +16,11 @@ async def on_ready():
 for extension in EXTENSIONS:
 	bot.load_extension(extension)
 
+def run_flask():
+    app.run(host="0.0.0.0", port=5000, threaded=True)
+
 if __name__ == "__main__":
+	flask_thread = threading.Thread(target=run_flask, daemon=True)
+	flask_thread.start()
+
 	bot.start()
