@@ -11,7 +11,7 @@ QUESTIONS = [
     "If applicable, will you be able to accept prize payment via PayPal only?",
     "Do you understand that if you cannot accept payment through PayPal, you may still participate but will forfeit any prize money if you win?",
     "Do you understand that all event players must watch Parky’s Twitch stream on the day of the event to follow along as it starts?",
-    "Do you agree to use the Event Modpack, without adding any mods, to ensure fairness amongst all players as well as replay compatibility for the video?"
+    "Do you agree to use the Event Modpack, without adding any mods, to ensure fairness amongst all players as well as replay compatibility for the video?",
     "Can your PC and internet reliably run Minecraft without significant lag or crashes?",
     "Will you be a good sport if anything goes wrong during the event—whether on the player side or server side? (Issues happen often.)",
     "How old are you? (Not a dealbreaker.)",
