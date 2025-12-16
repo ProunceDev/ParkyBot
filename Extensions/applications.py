@@ -1,40 +1,57 @@
 from interactions import *
-from Extensions.utilities import config
-import aiosqlite
-import json
+from Extensions.utilities import config, bot
+from constants import *
+import aiosqlite, json
 
 applications_in_progress = {}
 application_temp = {}
 
 class Applications(Extension):
+	status_message_id = 0
+
 	async def init_db(self):
 		async with aiosqlite.connect("applications.db") as db:
 			await db.execute("""
 				CREATE TABLE IF NOT EXISTS applications (
 					id INTEGER PRIMARY KEY AUTOINCREMENT,
-					data TEXT
+					data TEXT,
+					status TEXT,
+					user_id INTEGER
 				)
 			""")
 
-			await db.execute("""
-				CREATE TABLE IF NOT EXISTS applicants (
-					user_id INTEGER PRIMARY KEY
-				)
-			""")
+			await db.commit()
 
+	async def set_application_status(self, application_id: int, status: str):
+		async with aiosqlite.connect("applications.db") as db:
+			await db.execute("UPDATE applications SET status = ? WHERE id = ?", (status, application_id))
 			await db.commit()
 
 	async def has_applied(self, user_id: int) -> bool:
 		async with aiosqlite.connect("applications.db") as db:
-			cursor = await db.execute("SELECT 1 FROM applicants WHERE user_id = ?", (user_id,))
-			row = await cursor.fetchone()
-			return row is not None
-
-	async def set_as_applied(self, user_id: int):
+			async with db.execute("SELECT 1 FROM applications WHERE user_id = ? LIMIT 1", (user_id,)) as cursor:
+				return await cursor.fetchone() is not None
+			
+	async def get_total_applications(self):
 		async with aiosqlite.connect("applications.db") as db:
-			await db.execute("INSERT OR IGNORE INTO applicants (user_id) VALUES (?)", (user_id,))
-			await db.commit()
+			async with db.execute("SELECT COUNT(*) FROM applications") as cursor:
+				return (await cursor.fetchone())[0]
 
+	async def get_unviewed_applications(self):
+		async with aiosqlite.connect("applications.db") as db:
+			async with db.execute("SELECT COUNT(*) FROM applications WHERE status IS NULL") as cursor:
+				return (await cursor.fetchone())[0]
+
+	async def get_accepted_applications(self):
+		async with aiosqlite.connect("applications.db") as db:
+			async with db.execute("SELECT COUNT(*) FROM applications WHERE status = 'ACCEPTED'") as cursor:
+				return (await cursor.fetchone())[0]
+
+	async def get_denied_applications(self):
+		async with aiosqlite.connect("applications.db") as db:
+			async with db.execute("SELECT COUNT(*) FROM applications WHERE status = 'DENIED'") as cursor:
+				return (await cursor.fetchone())[0]
+			
 	async def get_next_application(self, current_id: int):
 		async with aiosqlite.connect("applications.db") as db:
 			async with db.execute("SELECT id, data FROM applications WHERE id > ? ORDER BY id ASC LIMIT 1", (current_id,)) as cursor:
@@ -47,26 +64,18 @@ class Applications(Extension):
 				row = await cursor.fetchone()
 				return row if row else None
 	
-	def build_application_embed(self, data: dict, username: str, id: str) -> Embed:
-		questions = [
-			"Will you be able to attend the Cave Event on March 29th at 4 PM EST?",
-			"Do you accept the rules detailed in #event-signup and understand that breaking them will result in instant death and a ban from the event?",
-			"Have you read the entire post in the #event-signup channel?",
-			"Will you be able to accept payment via PayPal only?",
-			"Do you understand that if you cannot accept payment through PayPal, you may still participate but will forfeit any prize money if you win?",
-			"Do you understand that all event players must watch Parky’s stream on the day of the event to follow along as it starts?",
-			"Can your PC and internet reliably run Minecraft without significant lag or crashes?",
-			"Will you be a good sport if anything goes wrong during the event—whether on the player side or server side? (Issues happen often.)",
-			"How old are you? (Not a dealbreaker.)",
-			"Do you have a microphone? If so, do you agree to be respectful and polite to all players in the event so that Parky can use the footage?",
-			"Will you accept in-game challenges or avoid them?",
-			"What are you most looking forward to if you are accepted to play in the event?",
-			"Do you have any PvP or survival experience that could give you an advantage in this event?"
-		]
+	async def move_application_to_back(self, application_id: int):
+		async with aiosqlite.connect("applications.db") as db:
+			async with db.execute("SELECT MAX(id) FROM applications") as cursor:
+				max_id = (await cursor.fetchone())[0] or 0
+			new_id = max_id + 1
+			await db.execute("UPDATE applications SET id = ? WHERE id = ?", (new_id, application_id))
+			await db.commit()
 
+	def build_application_embed(self, data: dict, username: str, id: str) -> Embed:
 		embed = Embed(title=f"{username}'s Application", description=f"Reviewing application #{id}", color=0x00ff99)
 
-		for i, question in enumerate(questions, start=1):
+		for i, question in enumerate(QUESTIONS, start=1):
 			answer = data.get(str(i), "N/A")
 			embed.add_field(name=f"{i}. {question}", value=str(answer), inline=False)
 
@@ -93,7 +102,8 @@ class Applications(Extension):
 
 				buttons = [
 					Button(style=ButtonStyle.DANGER, label="Deny", custom_id="application_deny"),
-					Button(style=ButtonStyle.SUCCESS, label="Accept", custom_id="application_accept")
+					Button(style=ButtonStyle.SUCCESS, label="Accept", custom_id="application_accept"),
+					Button(style=ButtonStyle.SECONDARY, label="Push to back", custom_id="application_delay")
 				]
 
 				await ctx.send(embed=embed, components=buttons)
@@ -122,12 +132,11 @@ class Applications(Extension):
 		role = ctx.guild.get_role(config.get_setting("staff_role_id", ""))
 		if role in ctx.author.roles:
 			application_id = int(ctx.message.embeds[0].description.split("#")[1])
-
+			await self.set_application_status(application_id, "DENIED")
 			await ctx.channel.send(embed=Embed(f"Denied application #{application_id}", "Sending next application", 0xFF0000))
 			await ctx.message.delete()
-			current_id = int(config.get_setting("current_application_id", "0"))
 
-			next_app = await self.get_next_application(current_id)
+			next_app = await self.get_next_application(application_id)
 
 			if next_app:
 				current_id, data = next_app
@@ -145,7 +154,8 @@ class Applications(Extension):
 
 				buttons = [
 					Button(style=ButtonStyle.DANGER, label="Deny", custom_id="application_deny"),
-					Button(style=ButtonStyle.SUCCESS, label="Accept", custom_id="application_accept")
+					Button(style=ButtonStyle.SUCCESS, label="Accept", custom_id="application_accept"),
+					Button(style=ButtonStyle.SECONDARY, label="Push to back", custom_id="application_delay")
 				]
 
 				await ctx.channel.send(embed=embed, components=buttons)
@@ -174,7 +184,7 @@ class Applications(Extension):
 		role = ctx.guild.get_role(config.get_setting("staff_role_id", ""))
 		if role in ctx.author.roles:
 			application_id = int(ctx.message.embeds[0].description.split("#")[1])
-
+			await self.set_application_status(application_id, "ACCEPTED")
 			await ctx.channel.send(embed=Embed(f"Accepted application #{application_id}", "Sending next application", 0x00FF00))
 			await ctx.message.delete()
 
@@ -204,9 +214,7 @@ class Applications(Extension):
 				except:
 					pass
 
-				current_id = int(config.get_setting("current_application_id", "0"))
-
-				next_app = await self.get_next_application(current_id)
+				next_app = await self.get_next_application(application_id)
 
 				if next_app:
 					current_id, data = next_app
@@ -224,7 +232,8 @@ class Applications(Extension):
 
 					buttons = [
 						Button(style=ButtonStyle.DANGER, label="Deny", custom_id="application_deny"),
-						Button(style=ButtonStyle.SUCCESS, label="Accept", custom_id="application_accept")
+						Button(style=ButtonStyle.SUCCESS, label="Accept", custom_id="application_accept"),
+						Button(style=ButtonStyle.SECONDARY, label="Push to back", custom_id="application_delay")
 					]
 
 					await ctx.channel.send(embed=embed, components=buttons)
@@ -256,139 +265,165 @@ class Applications(Extension):
 				, ephemeral=True
 			)
 
+	@component_callback("application_delay")
+	async def delay_button(self, ctx: ComponentContext):
+		await ctx.defer()
+		role = ctx.guild.get_role(config.get_setting("staff_role_id", ""))
+		if role in ctx.author.roles:
+			application_id = int(ctx.message.embeds[0].description.split("#")[1])
+			await self.move_application_to_back(application_id)
+			await ctx.channel.send(embed=Embed(f"Pushed application #{application_id} to the back.", "Sending next application", 0xFF0000))
+			await ctx.message.delete()
+
+			next_app = await self.get_next_application(application_id)
+
+			if next_app:
+				current_id, data = next_app
+
+				config.set_setting("current_application_id", str(current_id))
+
+				data = dict(json.loads(data))
+				embed = Embed(
+					title="Application Viewer",
+					description=f"Reviewing application #{current_id}",
+					color=0x3498db
+				)
+
+				embed = self.build_application_embed(data, data.get("0", {"name":"N/A"})["name"], str(current_id))
+
+				buttons = [
+					Button(style=ButtonStyle.DANGER, label="Deny", custom_id="application_deny"),
+					Button(style=ButtonStyle.SUCCESS, label="Accept", custom_id="application_accept"),
+					Button(style=ButtonStyle.SECONDARY, label="Push to back", custom_id="application_delay")
+				]
+
+				await ctx.channel.send(embed=embed, components=buttons)
+
+			else:
+				await ctx.channel.send(
+					embed=Embed(
+						"No more applications to view!",
+						"",
+						0xFF0000
+					)
+				)
+		else:
+			await ctx.send(
+				embed=Embed(
+					"No permission!",
+					"You can't run this command without the Staff role.",
+					0xFF0000
+				)
+				, ephemeral=True
+			)
+
 	@listen()
 	async def on_message_create(self, event):
-		message: Message = event.message
+		message = event.message
 
-		if message.author.bot:
+		if message.author.bot or message.guild is not None:
 			return
 
-		if message.guild is not None:
-			return
-		
-		application_progress_index = applications_in_progress.get(message.author.id, 0)
+		user_id = message.author.id
+		progress = applications_in_progress.get(user_id, 0)
+
 		if message.content == "!cancel":
-			if application_progress_index > 0:
+			if progress > 0:
 				await message.channel.send("Application canceled.")
-				applications_in_progress[message.author.id] = 0
+				applications_in_progress[user_id] = 0
 				return
 			else:
 				await message.channel.send("You are not actively applying.")
 				return
-		if message.content != "!apply" and application_progress_index < 1:
-			if await self.has_applied(message.author.id):
-				await message.channel.send("You've already applied for this event, we will contact you if you are accepted. ( Make sure your dm’s are open. )")
+
+		if message.content != "!apply" and progress < 1:
+			if await self.has_applied(user_id):
+				await message.channel.send("You've already applied for this event, we will contact you if you are accepted. (Make sure your DMs are open.)")
 				return
 			else:
 				await message.channel.send("If you are trying to apply for an event, type **!apply** to start, and **!cancel** at any time to cancel.")
 				return
-		
-		if message.content == "!apply" and application_progress_index > 0:
-			await message.channel.send("You've already applied for this event.")
-			return
-		
-		if message.content == "!apply" and application_progress_index == 0:
-			if await self.has_applied(message.author.id):
-				await message.channel.send("You've already applied for this event, we will contact you if you are accepted. ( Make sure your dm’s are open. )")
+
+		if message.content == "!apply":
+			if progress > 0:
+				await message.channel.send("You're already in the application process.")
 				return
-			else:
-				await message.channel.send('The application process has started, it should take about 10 minutes, say "Ready", when you are ready to start, then be ready to answer each question as they come.')
-				application_temp[message.author.id] = {0: {"name": message.author.display_name, "id": message.author.id}}
-				applications_in_progress[message.author.id] = 1
+			if await self.has_applied(user_id):
+				await message.channel.send("You've already applied for this event, we will contact you if you are accepted. (Make sure your DMs are open.)")
 				return
+
+			await message.channel.send('The application process has started. Say "Ready" when you are ready to start.')
+			application_temp[user_id] = {0: {"name": message.author.display_name, "id": user_id}}
+			applications_in_progress[user_id] = 1
+			return
+
+		if message.content.lower() == "ready" and progress == 1:
+			await message.channel.send(f"**(1/{len(QUESTIONS)})** {QUESTIONS[0]}")
+			applications_in_progress[user_id] = 2
+			return
+
+		if progress > 1 and progress <= len(QUESTIONS) + 1:
+			application_temp[user_id][progress - 1] = message.content
+			if progress - 1 > len(QUESTIONS) - 1:
+				await message.channel.send("✅ Thanks! Your application has been submitted. We’ll reach out if you're selected. (Make sure your DMs are open.)")
+				applications_in_progress[user_id] = 0
+
+				async with aiosqlite.connect("applications.db") as db:
+					await db.execute(
+						"INSERT INTO applications (data, user_id) VALUES (?, ?)",
+						(json.dumps(application_temp[user_id]), user_id)
+					)
+					await db.commit()
+				return
+
+			await message.channel.send(f"**({progress}/{len(QUESTIONS)})** {QUESTIONS[progress - 1]}")
+			applications_in_progress[user_id] += 1
+
+	async def build_application_status_embed(self):
+		embed = Embed(
+			title="Application Status",
+			description="Current application statistics:",
+			color=0x3498db
+		)
+		embed.add_field(name="Total", value=await self.get_total_applications(), inline=False)
+		embed.add_field(name="Accepted", value=await self.get_accepted_applications(), inline=False)
+		embed.add_field(name="Denied", value=await self.get_denied_applications(), inline=False)
+		embed.add_field(name="Unviewed", value=await self.get_unviewed_applications(), inline=False)
 		
-		if message.content.lower() != "ready" and application_progress_index == 1:
-			await message.channel.send("Not ready, canceling...")
-			return
-		
-		elif message.content.lower() == "ready" and application_progress_index == 1:
-			await message.channel.send("**( 1 / 13 )** Will you be able to attend the Cave Event on <t:1743278400:F>?")
-			applications_in_progress[message.author.id] = 2
-			return
-		
-		if application_progress_index == 2:
-			application_temp[message.author.id][1] = message.content
-			await message.channel.send("**( 2 / 13 )** Do you accept the rules detailed in https://discord.com/channels/1082410307474968577/1333108418256310363 and understand that breaking them will result in instant death and a ban from the event?")
-			applications_in_progress[message.author.id] = 3
+		button = Button(
+			style=ButtonStyle.PRIMARY, 
+			label="View Applications", 
+			custom_id="view_applications"
+		)
+		return embed, [button]
 
-		if application_progress_index == 3:
-			application_temp[message.author.id][2] = message.content
-			await message.channel.send("**( 3 / 13 )** Have you read the entire post in the https://discord.com/channels/1082410307474968577/1333108418256310363 channel?")
-			applications_in_progress[message.author.id] = 4
-			return
+	@component_callback("view_applications")
+	async def view_applications_button(self, ctx: ComponentContext):
+		await self.view_applications(ctx)
 
-		if application_progress_index == 4:
-			application_temp[message.author.id][3] = message.content
-			await message.channel.send("**( 4 / 13 )** Will you be able to accept payment via PayPal only?")
-			applications_in_progress[message.author.id] = 5
-			return
+	@Task.create(IntervalTrigger(minutes=1))
+	async def update_embed(self):
+		channel = await bot.fetch_channel(config.get_setting("application_viewer_channel_id"))
+		if channel:
+			async for message in channel.history(limit=1):
+				message: Message
+				if message and (Timestamp.utcnow().timestamp() - message.timestamp.timestamp()) >= 120:
+					embed, components = await self.build_application_status_embed()
+					if message.id == self.status_message_id:
+						try:
+							await message.edit(embed=embed, components=components)
+						except errors.NotFound:
+							message = await channel.send(embed=embed, components=components)
+							self.status_message_id = message.id
+					else:
+						message = await channel.send(embed=embed, components=components)
+						self.status_message_id = message.id
+		else:
+			print("No valid application viewer channel found, please update 'application_viewer_channel_id' in config.")
 
-		if application_progress_index == 5:
-			application_temp[message.author.id][4] = message.content
-			await message.channel.send("**( 5 / 13 )** Do you understand that if you cannot accept payment through PayPal, you may still participate but will forfeit any prize money if you win?")
-			applications_in_progress[message.author.id] = 6
-			return
-
-		if application_progress_index == 6:
-			application_temp[message.author.id][5] = message.content
-			await message.channel.send("**( 6 / 13 )** Do you understand that all event players must watch Parky’s stream on the day of the event to follow along as it starts?")
-			applications_in_progress[message.author.id] = 7
-			return
-
-		if application_progress_index == 7:
-			application_temp[message.author.id][6] = message.content
-			await message.channel.send("**( 7 / 13 )** Can your PC and internet reliably run Minecraft without significant lag or crashes?")
-			applications_in_progress[message.author.id] = 8
-			return
-
-		if application_progress_index == 8:
-			application_temp[message.author.id][7] = message.content
-			await message.channel.send("**( 8 / 13 )** Will you be a good sport if anything goes wrong during the event—whether on the player side or server side? (Issues happen often.)")
-			applications_in_progress[message.author.id] = 9
-			return
-
-		if application_progress_index == 9:
-			application_temp[message.author.id][8] = message.content
-			await message.channel.send("**( 9 / 13 )** How old are you? (Not a dealbreaker.)")
-			applications_in_progress[message.author.id] = 10
-			return
-
-		if application_progress_index == 10:
-			application_temp[message.author.id][9] = message.content
-			await message.channel.send("**( 10 / 13 )** Do you have a microphone? If so, do you agree to be respectful and polite to all players in the event so that Parky can use the footage?")
-			applications_in_progress[message.author.id] = 11
-			return
-
-		if application_progress_index == 11:
-			application_temp[message.author.id][10] = message.content
-			await message.channel.send("**( 11 / 13 )** Will you accept in-game challenges or avoid them?")
-			applications_in_progress[message.author.id] = 12
-			return
-
-		if application_progress_index == 12:
-			application_temp[message.author.id][11] = message.content
-			await message.channel.send("**( 12 / 13 )** What are you most looking forward to if you are accepted to play in the event?")
-			applications_in_progress[message.author.id] = 13
-			return
-
-		if application_progress_index == 13:
-			application_temp[message.author.id][12] = message.content
-			await message.channel.send("**( 13 / 13 )** Do you have any PvP or survival experience that could give you an advantage in this event?")
-			applications_in_progress[message.author.id] = 14
-			return
-
-		if application_progress_index == 14:
-			application_temp[message.author.id][13] = message.content
-			await message.channel.send("✅ Thanks! Your application has been submitted. We’ll reach out if you're selected to participate. ( Make sure your dm’s are open. )")
-			applications_in_progress[message.author.id] = 0
-			await self.init_db()
-
-			async with aiosqlite.connect("applications.db") as db:
-				await db.execute(
-					"INSERT INTO applications (data) VALUES (?)", (json.dumps(application_temp[message.author.id]), )
-				)
-				await db.commit()
-
-			await self.set_as_applied(message.author.id)
-			return
-
+	@listen()
+	async def on_ready(self):
+		print("Starting tasks...")
+		await self.init_db()
+		await self.update_embed()
+		self.update_embed.start()
